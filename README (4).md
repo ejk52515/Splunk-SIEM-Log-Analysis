@@ -227,7 +227,7 @@ index = windows_logs
 
 > **Easy-to-miss detail:** the `index = windows_logs` line must appear under *every* stanza. Without it, the forwarder routes events to the default `main` index and your `index=windows_logs` searches return nothing — a classic first-time-setup gotcha.
 
-![inputs.conf on the Windows Server VM](screenshots/Conf_File.png)
+![inputs.conf on the Windows Server VM](screenshots/Conf.File.png)
 
 Then restart the forwarder (PowerShell as Administrator):
 
@@ -320,7 +320,7 @@ Alerts automate detection: instead of watching dashboards, Splunk runs a search 
 
 I created a scheduled alert named **High Privileged Logon Count** that fires when results are returned, with the **Add to Triggered Alerts** action.
 
-![High Privileged Logon Count alert configuration](screenshots/Automated_Alert.png)
+![High Privileged Logon Count alert configuration](screenshots/Automated%20Alert.png)
 
 | Setting | Value |
 | --- | --- |
