@@ -1,4 +1,4 @@
-# Lab 3 — Splunk SIEM & Log Analysis
+# Splunk SIEM & Log Analysis
 
 > Deploying Splunk Enterprise on an Azure VM, forwarding Windows Security logs from an Active Directory host, and building SOC-grade searches, dashboards, and alerts.
 
