@@ -32,27 +32,30 @@ Everything here runs on the Splunk Free licence (500 MB/day indexing) and Azure 
 
 ## Architecture
 
-The Windows Server VM forwards Security, System, and Application logs over the internal Azure network to the Splunk indexer, which stores them in a dedicated index and exposes them through the web UI for search, dashboards, and alerting.
+The Windows Server VM and the Splunk indexer live in **two separate Azure Virtual Networks**. To let them communicate, the VNets are joined with **VNet Peering**, and an NSG rule permits forwarder traffic on TCP 9997. The Windows Server forwards Security, System, and Application logs across the peering to the Splunk indexer, which stores them in a dedicated index and exposes them through the web UI for search, dashboards, and alerting.
 
 ```mermaid
 flowchart LR
-    subgraph AZ["Azure VNet — 10.0.0.0/16"]
-        direction LR
+    subgraph ADNET["AD VNet — 10.1.0.0/16"]
         subgraph WIN["Windows Server VM (Lab 1)"]
             AD["Active Directory<br/>Security / System / Application logs"]
             UF["Splunk Universal Forwarder<br/>inputs.conf"]
             AD --> UF
         end
+    end
+
+    subgraph SPLNET["Splunk VNet — 10.0.0.0/16"]
         subgraph LNX["Ubuntu 22.04 VM"]
             REC["Receiver :9997"]
             IDX["Index: windows_logs"]
             WEB["Web UI :8000"]
             REC --> IDX --> WEB
         end
-        UF -- "encrypted forward<br/>TCP 9997" --> REC
     end
 
-    ANALYST["SOC Analyst<br/>(SSH :22 / HTTPS :8000)"]
+    UF -- "encrypted forward · TCP 9997<br/>across VNet Peering" --> REC
+
+    ANALYST["Analyst workstation<br/>(SSH :22 / HTTP :8000)"]
     WEB --> ANALYST
     ANALYST -- "SPL searches · dashboards · alerts" --> WEB
 
@@ -64,15 +67,17 @@ flowchart LR
     class ANALYST ext;
 ```
 
+> **VNet Peering was the key networking step.** The two VMs sit in separate Virtual Networks, so even with correct NSG port rules they cannot reach each other by default. Peering the VNets — plus the inbound 9997 rule on the Splunk NSG — is what allows the forwarder to deliver logs to the indexer.
+
 **Network exposure (Azure NSG rules):**
 
-| Port | Purpose | Exposed to |
-| --- | --- | --- |
-| 8000 | Splunk web UI | My IP only |
-| 22 | SSH to Ubuntu VM | My IP only |
-| 9997 | Universal Forwarder input | VNet range only (`10.0.0.0/16`) |
+| Port | Purpose | Source (this lab) | Recommended for production |
+| --- | --- | --- | --- |
+| 8000 | Splunk web UI | Any | Trusted admin IP only |
+| 22 | SSH to Ubuntu VM | Any | Trusted admin IP only |
+| 9997 | Universal Forwarder input | Peered VNet (`10.1.0.0/16`) | Peered VNet only |
 
-> Port 9997 is deliberately **not** exposed to the public internet — only other VMs inside the VNet can send logs to the indexer.
+> For speed in this short-lived lab, management ports were left open to `Any`. In a real deployment these would be scoped to a trusted admin IP (or fronted by a bastion/Just-in-Time access). Port 9997 is only reachable across the VNet peering — it is **not** exposed to the public internet.
 
 ---
 
@@ -145,7 +150,7 @@ The configuration file that tells the Universal Forwarder which data to collect.
 | Built a security dashboard | Login failures over time, top sources, failed auth by user — security posture at a glance |
 | Identified failed login attempts | Distinguishing normal user error from a brute force attack |
 | Built an automated alert | Splunk fires on defined conditions instead of waiting for a human to notice |
-| Searched for account lockouts | A lockout trail can reveal a password spray in progress |
+| Wrote an account-lockout detection (4740) | A lockout trail can reveal a password spray in progress (detection ready; no lockouts generated in this run) |
 
 ---
 
@@ -235,6 +240,19 @@ Then restart the forwarder (PowerShell as Administrator):
 Restart-Service SplunkForwarder
 ```
 
+**Part D — Connect the two VNets (VNet Peering + NSG rule):**
+
+The Windows Server and Splunk VMs are in **separate Azure Virtual Networks**, so they cannot communicate by default — even with the right port rules. Two things are required:
+
+1. On the **Splunk VM's NSG**, add an inbound rule allowing **TCP 9997** from the AD VNet range (the forwarder's source).
+2. Create a **VNet Peering** between the two networks: **Virtual Networks → (Splunk VNet) → Peerings → Add**, select the AD VNet as the remote network, and let Azure provision both directions. Wait for **Status: Connected** on both sides.
+
+After the networking is in place, restart the forwarder once more so it re-attempts the connection:
+
+```powershell
+Restart-Service SplunkForwarder
+```
+
 > **No Lab 1 AD VM yet?** Splunk ships with sample data. Go to **Search → Data Summary** to find sample indexes and complete most of the search exercises while you build out Lab 1.
 
 ---
@@ -273,7 +291,7 @@ index=windows_logs sourcetype=WinEventLog:Security EventCode=4740
 | table _time, Account_Name, Caller_Computer_Name
 | sort -_time
 ```
-Multiple lockouts for one account = likely brute force or password spray.
+Multiple lockouts for one account = likely brute force or password spray. *In this lab run the simulated activity produced no 4740 events, so this search returns empty — it's included as a ready-to-use detection that populates the moment real lockouts occur.*
 
 **Top 10 failed-login usernames (threat hunting):**
 
